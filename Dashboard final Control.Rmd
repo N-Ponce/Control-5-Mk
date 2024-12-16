@@ -1,0 +1,293 @@
+---
+title: "Control 5"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(plotly)
+library(caret)
+library(dplyr)
+library(ggplot2)     # Para manipulación de datos y visualización       # Para gráficos interactivos
+library(scales)        # Para formateo de escalas
+library(lubridate)     # Para manejo de fechas
+library(corrplot)      # Para matrices de correlación
+library(gridExtra)     # Para combinar gráficos
+library(hrbrthemes)    # Para temas de visualización
+library(stats)         # Para análisis estadístico
+library(readr)
+
+
+## Paso 1: Carga y Preparación de Datos
+
+# Cargar datos
+datos <- read_csv("enhanced_saas_marketing_data.csv")
+
+# Preparación inicial de datos
+datos_prep <- datos %>%
+  # Convertir fecha a formato Date
+  mutate(
+    date = as.Date(date),
+    month = floor_date(date, "month"),
+    # Crear métricas derivadas
+    gross_margin = (revenue - costs) / revenue,
+    marketing_efficiency = revenue / marketing_spend,
+    clv_cac_ratio = customer_lifetime_value / customer_acquisition_cost
+  )
+
+# Verificar estructura de datos
+str(datos_prep)
+summary(datos_prep)
+
+##Paso 2: Análisis de Tendencias Temporales
+#Función para crear gráfico de tendencias
+crear_tendencias <- function(datos, metrica, titulo) {
+  grafico <- datos %>%
+    group_by(date, company) %>%
+    summarise(valor = mean(!!sym(metrica))) %>%
+    ggplot(aes(x = date, y = valor, color = company)) +
+    geom_line(size = 1) +
+    geom_point(size = 2) +
+    theme_ipsum() +
+    labs(
+      title = titulo,
+      x = "Fecha",
+      y = metrica
+    ) +
+    theme(legend.position = "bottom")
+
+  return(ggplotly(grafico))
+}
+
+# Crear gráficos de tendencias
+tendencias_revenue <- crear_tendencias(datos_prep, "revenue",
+                                     "Tendencia de Ingresos por Empresa")
+tendencias_cac <- crear_tendencias(datos_prep, "customer_acquisition_cost",
+                                  "Evolución del CAC")
+
+
+##Paso 3: Análisis de Distribuciones
+
+# Función para análisis de distribución
+analizar_distribucion <- function(datos, variable) {
+  # Histograma
+  hist <- ggplot(datos, aes(x = !!sym(variable), fill = company)) +
+    geom_histogram(alpha = 0.6, bins = 30) +
+    facet_wrap(~company, scales = "free") +
+    theme_minimal() +
+    labs(title = paste("Distribución de", variable))
+
+  # Box plot
+  box <- ggplot(datos, aes(x = company, y = !!sym(variable), fill = company)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(title = paste("Box Plot de", variable)) +
+    theme(axis.text.x = element_text(angle = 45))
+
+  # Combinar gráficos
+  grid.arrange(hist, box, ncol = 1)
+}
+
+# Analizar distribuciones de métricas clave
+analizar_distribucion(datos_prep, "revenue")
+analizar_distribucion(datos_prep, "customer_lifetime_value")
+
+##Paso 4: Análisis Estadístico
+# Función para análisis estadístico por empresa
+analisis_estadistico <- function(datos) {
+  resumen <- datos %>%
+    group_by(company) %>%
+    summarise(
+      # Métricas financieras
+      revenue_mean = mean(revenue),
+      revenue_sd = sd(revenue),
+      margin_mean = mean(gross_margin),
+
+      # Métricas de cliente
+      cac_mean = mean(customer_acquisition_cost),
+      clv_mean = mean(customer_lifetime_value),
+      clv_cac_ratio = mean(clv_cac_ratio),
+
+      # Métricas de engagement
+      satisfaction_mean = mean(customer_satisfaction),
+      churn_rate_mean = mean(churn_rate),
+
+      # Tests estadísticos
+      revenue_normality = shapiro.test(revenue)$p.value
+    )
+
+  return(resumen)
+}
+
+# Ejecutar análisis estadístico
+resumen_estadistico <- analisis_estadistico(datos_prep)
+
+##Paso 5: Análisis de Correlaciones
+# Función para análisis de correlaciones
+analizar_correlaciones <- function(datos) {
+  # Seleccionar métricas numéricas
+  metricas_numericas <- datos %>%
+    select_if(is.numeric)   # Excluir variables temporales
+
+  # Calcular correlaciones
+  correlaciones <- cor(metricas_numericas, use = "complete.obs")
+
+  # Crear visualización
+  corrplot(correlaciones,
+          method = "color",
+          type = "upper",
+          addCoef.col = "black",
+          number.cex = 0.7,
+          tl.cex = 0.7,
+          title = "Matriz de Correlaciones")
+}
+
+# Visualizar correlaciones
+analizar_correlaciones(datos_prep)
+
+
+# Función para análisis de ROI
+analisis_roi <- function(datos) {
+  roi_plot <- datos %>%
+    group_by(company, month) %>%
+    summarise(
+      marketing_roi = mean(marketing_roi),
+      marketing_spend = mean(marketing_spend),
+      .groups = "drop"
+    ) %>%
+    ggplot(aes(x = marketing_spend, y = marketing_roi, color = company)) +
+    geom_point(size = 3, alpha = 0.6) +
+    geom_smooth(method = "lm", se = FALSE, formula = y ~ x) +
+    theme_minimal() +
+    labs(
+      title = "ROI vs Inversión en Marketing",
+      x = "Inversión en Marketing",
+      y = "ROI"
+    )
+
+  return(ggplotly(roi_plot))}
+
+grafico_roi <- analisis_roi(datos_prep)
+
+library(dplyr)
+library(tidyr)
+
+# Reestructurar los datos para convertir las columnas de tráfico en una columna 'Canal_Marketing'
+ejercicio_2 <- datos %>%
+  pivot_longer(cols = c(organic_traffic, direct_traffic, referral_traffic, paid_traffic),
+               names_to = "Canal_Marketing",
+               values_to = "Tráfico")
+
+# Mostrar el nuevo dataframe reestructurado (mi_base_long)
+print(ejercicio_2)
+
+# Ahora agrupamos por Empresa y Canal_Marketing y sumamos los valores de tráfico
+canal_m <- ejercicio_2  %>%
+  group_by(Canal_Marketing, company) %>%
+  summarise(
+    Total_Tráfico = sum(Tráfico, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Revenue por region
+
+```{r}
+# Visualización del revenue por región con valores visibles
+revenue_region <- datos %>%
+  group_by(region) %>%
+  summarise(TotalRevenue = sum(revenue, na.rm = TRUE))
+
+# Crear gráfico con etiquetas visibles
+plot_ly(revenue_region, 
+        x = ~region, 
+        y = ~TotalRevenue, 
+        type = 'bar', 
+        name = 'Revenue',
+        text = ~TotalRevenue,          # Agregar los valores como etiquetas
+        textposition = 'outside',     # Posición de las etiquetas fuera de las barras
+        hoverinfo = 'text+name') %>%  # Mostrar etiquetas en hover
+  layout(title = "Revenue por Región",
+         xaxis = list(title = "Región"),
+         yaxis = list(title = "Revenue Total"))
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Regresion Lineal simple
+
+```{r}
+# Regresión Lineal Simple -------------------------------------
+
+# Asegúrate de reemplazar 'x_variable' por el nombre de la columna adecuada.
+modelo <- lm(revenue ~ costs, data = datos)
+
+# Resumen del modelo
+summary(modelo)
+
+# Visualización de la regresión
+ggplot(datos, aes(x = costs, y = revenue)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Regresión Lineal Simple",
+       x = "Variable Independiente",
+       y = "Revenue") +
+  theme_minimal()
+```
+
+### Trafico por canal de marketing
+
+```{r}
+# Cargar las librerías necesarias
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Suponiendo que ya tienes el dataframe 'mi_base' con las columnas adecuadas
+mi_base_long <- datos %>%
+  pivot_longer(cols = c(organic_traffic, direct_traffic, referral_traffic, paid_traffic),
+               names_to = "Canal_Marketing",
+               values_to = "Tráfico")
+
+# Resumen de los datos (agrupado por Empresa y Canal_Marketing)
+resumen <- mi_base_long %>%
+  group_by(company, Canal_Marketing) %>%
+  summarise(
+    Total_Tráfico = sum(Tráfico, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Crear el gráfico de barras apiladas
+ggplot(resumen, aes(x = company, y = Total_Tráfico, fill = Canal_Marketing)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Distribución del Tráfico por Canal de Marketing",
+       x = "Empresa",
+       y = "Total de Tráfico",
+       fill = "Canal de Marketing") +
+  theme_minimal()
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Eficiencia como revenue
+
+```{r}
+# Calcular eficiencia como revenue / costs para cada empresa
+efficiency_table <- datos %>%
+  group_by(company) %>%
+  summarise(Efficiency = sum(revenue) / sum(costs)) %>%
+  arrange(desc(Efficiency))  # Ordenar de mayor a menor eficiencia
+
+# Mostrar la tabla
+print(efficiency_table)
+```
